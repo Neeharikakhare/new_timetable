@@ -53,10 +53,11 @@ async function initDb() {
         name VARCHAR(255) NOT NULL,
         branch VARCHAR(100) NOT NULL,
         semester INTEGER NOT NULL,
-        code VARCHAR(50) UNIQUE NOT NULL,
+        code VARCHAR(50) NOT NULL,
         type VARCHAR(20) NOT NULL CHECK(type IN ('theory','lab','tutorial')),
         credits INTEGER NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT unique_code_type UNIQUE(code, type)
       );
 
       CREATE TABLE IF NOT EXISTS faculty_subjects (
@@ -65,8 +66,9 @@ async function initDb() {
         subject_id INTEGER NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
         lecture_count INTEGER NOT NULL,
         batch_option VARCHAR(20) DEFAULT 'whole' CHECK(batch_option IN ('whole','batch1','batch2')),
+        section VARCHAR(50),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        CONSTRAINT unique_faculty_subject_batch UNIQUE(faculty_id, subject_id, batch_option)
+        CONSTRAINT unique_faculty_subject_batch_section UNIQUE(faculty_id, subject_id, batch_option, section)
       );
 
       CREATE TABLE IF NOT EXISTS timetable_slots (

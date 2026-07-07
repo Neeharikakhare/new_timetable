@@ -39,7 +39,8 @@ export const timetableAPI = {
   getAll: () => api.get('/timetable'),
   upsertSlot: (data) => api.post('/timetable/slot', data),
   deleteSlot: (id) => api.delete(`/timetable/slot/${id}`),
-  getConflicts: () => api.get('/timetable/conflicts')
+  getConflicts: () => api.get('/timetable/conflicts'),
+  generateSemester: (semester) => api.post('/timetable/generate-semester', { semester })
 };
 
 // AI APIs

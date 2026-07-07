@@ -5,9 +5,9 @@ import { timetableAPI, facultyAPI, subjectAPI } from '../services/api';
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const TIME_SLOTS = [
-  '08:00-09:00', '09:00-10:00', '10:00-11:00', '11:00-12:00',
-  '12:00-13:00', '13:00-14:00', '14:00-15:00', '15:00-16:00',
-  '16:00-17:00'
+  '08:30-09:20', '09:20-10:10', '10:10-11:00', '11:00-11:50',
+  '11:50-12:30', // LUNCH
+  '12:30-01:20', '01:20-02:10', '02:10-03:00'
 ];
 const BATCHES = [
   { value: 'whole', label: 'Whole Batch' },
@@ -46,6 +46,7 @@ export default function TimetableTab() {
   const [slotForm, setSlotForm] = useState({
     faculty_id: '', subject_id: '', room: '', batch: 'whole'
   });
+  const [generating, setGenerating] = useState(false);
 
   // Filters and Cohorts
   const [selectedSem, setSelectedSem] = useState('');
@@ -63,47 +64,106 @@ export default function TimetableTab() {
     }
   };
 
-  const handleExportExcel = () => {
-    if (!selectedSem || !selectedSec) {
-      toast.error('Please select a Semester and Section to export');
+  const handleAutoGenerate = async () => {
+    if (!selectedSem) {
+      toast.error('Please select a Semester first');
       return;
     }
 
-    const headers = ['Day', ...TIME_SLOTS];
-    const rows = DAYS.map(day => {
-      const rowData = [day];
-      TIME_SLOTS.forEach(ts => {
-        const slot = slots.find(s => 
-          s.day === day && 
-          s.time_slot === ts &&
-          s.subject_semester === parseInt(selectedSem) &&
-          s.section === selectedSec
-        );
-        if (slot && slot.faculty_id) {
-          rowData.push(`${slot.subject_code}: ${slot.subject_name} (${slot.faculty_name}) [Room: ${slot.room || '—'}]${slot.batch !== 'whole' ? ` (${slot.batch === 'batch1' ? 'B1' : 'B2'})` : ''}`);
-        } else {
-          rowData.push('Free Slot');
-        }
-      });
-      return rowData;
-    });
+    if (!window.confirm(`⚠️ Warning: This will clear all existing timetable slots for ALL sections in Semester ${selectedSem} and automatically generate a new schedule. Do you wish to proceed?`)) {
+      return;
+    }
+
+    try {
+      setGenerating(true);
+      const { data } = await timetableAPI.generateSemester(selectedSem);
+      toast.success(data.message || 'Timetable generated successfully!');
+      await fetchAll();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to auto-generate timetable');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleExportExcel = () => {
+    if (!selectedSem) {
+      toast.error('Please select a Semester to export');
+      return;
+    }
+
+    const activeYear = getYearBySem(selectedSem);
+    const availableSections = activeYear ? SECTIONS_BY_YEAR[activeYear] : [];
+    const sectionsToExport = selectedSec ? [selectedSec] : availableSections;
+
+    if (sectionsToExport.length === 0) {
+      toast.error('No sections to export');
+      return;
+    }
 
     const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
 
-    ws['!cols'] = [
-      { wch: 12 },
-      ...TIME_SLOTS.map(() => ({ wch: 25 }))
-    ];
+    sectionsToExport.forEach(sec => {
+      const headers = ['Day', ...TIME_SLOTS];
+      const rows = DAYS.map(day => {
+        const rowData = [day];
+        TIME_SLOTS.forEach(ts => {
+          if (ts === '11:50-12:30') {
+            rowData.push('LUNCH BREAK');
+            return;
+          }
+          if (day === 'Saturday' && ts === '12:30-01:20') {
+            rowData.push('TG / LIBRARY');
+            return;
+          }
+          if (day === 'Saturday' && (ts === '01:20-02:10' || ts === '02:10-03:00')) {
+            rowData.push('SAC ACTIVITY');
+            return;
+          }
 
-    XLSX.utils.book_append_sheet(wb, ws, 'Timetable');
-    XLSX.writeFile(wb, `timetable_${selectedSec.replace(/\s+/g, '_')}_sem_${selectedSem}.xlsx`);
+          const slot = slots.find(s => 
+            s.day === day && 
+            s.time_slot === ts &&
+            s.subject_semester === parseInt(selectedSem) &&
+            s.section === sec
+          );
+          if (slot && slot.faculty_id) {
+            rowData.push(`${slot.subject_code}: ${slot.subject_name} (${slot.faculty_name}) [Room: ${slot.room || '—'}]${slot.batch !== 'whole' ? ` (${slot.batch === 'batch1' ? 'B1' : 'B2'})` : ''}`);
+          } else {
+            rowData.push('Free Slot');
+          }
+        });
+        return rowData;
+      });
+
+      const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+      ws['!cols'] = [
+        { wch: 12 },
+        ...TIME_SLOTS.map(() => ({ wch: 25 }))
+      ];
+      XLSX.utils.book_append_sheet(wb, ws, sec);
+    });
+
+    const filename = selectedSec 
+      ? `timetable_${selectedSec.replace(/\s+/g, '_')}_sem_${selectedSem}.xlsx`
+      : `timetable_semester_${selectedSem}_all_sections.xlsx`;
+
+    XLSX.writeFile(wb, filename);
     toast.success('Excel timetable downloaded!');
   };
 
   const handleExportPDF = () => {
-    if (!selectedSem || !selectedSec) {
-      toast.error('Please select a Semester and Section to export');
+    if (!selectedSem) {
+      toast.error('Please select a Semester to export');
+      return;
+    }
+
+    const activeYear = getYearBySem(selectedSem);
+    const availableSections = activeYear ? SECTIONS_BY_YEAR[activeYear] : [];
+    const sectionsToExport = selectedSec ? [selectedSec] : availableSections;
+
+    if (sectionsToExport.length === 0) {
+      toast.error('No sections to export');
       return;
     }
 
@@ -112,23 +172,30 @@ export default function TimetableTab() {
     const htmlContent = `
       <html>
         <head>
-          <title>Timetable - ${selectedSec} (Semester ${selectedSem})</title>
+          <title>Timetable - Semester ${selectedSem}</title>
           <style>
             body {
               font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
               color: #1e293b;
-              padding: 30px;
+              padding: 20px;
               margin: 0;
               background-color: #ffffff;
             }
+            .page {
+              page-break-after: always;
+              padding-bottom: 20px;
+            }
+            .page:last-child {
+              page-break-after: avoid;
+            }
             .header {
               text-align: center;
-              margin-bottom: 25px;
+              margin-bottom: 20px;
               border-bottom: 2px solid #e2e8f0;
-              padding-bottom: 15px;
+              padding-bottom: 10px;
             }
             .title {
-              font-size: 26px;
+              font-size: 24px;
               font-weight: 800;
               margin: 0;
               color: #1e1b4b;
@@ -136,9 +203,9 @@ export default function TimetableTab() {
               letter-spacing: 0.05em;
             }
             .subtitle {
-              font-size: 13px;
+              font-size: 12px;
               color: #64748b;
-              margin-top: 6px;
+              margin-top: 4px;
               font-weight: 500;
             }
             table {
@@ -149,9 +216,9 @@ export default function TimetableTab() {
             }
             th, td {
               border: 1px solid #cbd5e1;
-              padding: 8px 6px;
+              padding: 6px 4px;
               text-align: center;
-              font-size: 11px;
+              font-size: 10px;
               vertical-align: middle;
               word-wrap: break-word;
             }
@@ -160,22 +227,22 @@ export default function TimetableTab() {
               font-weight: 700;
               color: #334155;
               text-transform: uppercase;
-              font-size: 10px;
+              font-size: 9px;
               letter-spacing: 0.03em;
             }
             .time-col {
               background-color: #f1f5f9;
               font-weight: 700;
               color: #475569;
-              width: 100px;
+              width: 90px;
             }
             .slot-card {
-              background-color: #f0f4ff;
-              border: 1px solid #bfdbfe;
-              border-left: 4px solid #3b82f6;
-              padding: 6px;
-              border-radius: 4px;
-              text-align: left;
+               background-color: #f0f4ff;
+               border: 1px solid #bfdbfe;
+               border-left: 4px solid #3b82f6;
+               padding: 5px;
+               border-radius: 4px;
+               text-align: left;
             }
             .slot-card.slot-lab {
               background-color: #ecfdf5;
@@ -190,7 +257,7 @@ export default function TimetableTab() {
             .slot-faculty {
               font-weight: 700;
               color: #0f172a;
-              font-size: 11px;
+              font-size: 10px;
               margin-bottom: 2px;
               overflow: hidden;
               text-overflow: ellipsis;
@@ -198,7 +265,7 @@ export default function TimetableTab() {
             }
             .slot-subject {
               color: #2563eb;
-              font-size: 10px;
+              font-size: 9px;
               font-weight: 600;
             }
             .slot-card.slot-lab .slot-subject {
@@ -209,14 +276,14 @@ export default function TimetableTab() {
             }
             .slot-room {
               color: #64748b;
-              font-size: 9px;
-              margin-top: 3px;
+              font-size: 8px;
+              margin-top: 2px;
               font-weight: 500;
             }
             .empty-slot {
               color: #94a3b8;
               font-style: italic;
-              font-size: 10px;
+              font-size: 9px;
             }
             @media print {
               body { padding: 0; }
@@ -228,47 +295,68 @@ export default function TimetableTab() {
           </style>
         </head>
         <body>
-          <div class="header">
-            <h1 class="title">College Timetable</h1>
-            <div class="subtitle">Semester: ${selectedSem} | Section: ${selectedSec} | Generated: ${new Date().toLocaleDateString()}</div>
-          </div>
-          <table>
-            <thead>
-              <tr>
-                <th style="width: 100px;">Time</th>
-                ${DAYS.map(d => `<th>${d}</th>`).join('')}
-              </tr>
-            </thead>
-            <tbody>
-              ${TIME_SLOTS.map(ts => `
-                <tr>
-                  <td class="time-col">${ts}</td>
-                  ${DAYS.map(day => {
-                    const slot = slots.find(s => 
-                      s.day === day && 
-                      s.time_slot === ts &&
-                      s.subject_semester === parseInt(selectedSem) &&
-                      s.section === selectedSec
-                    );
-                    if (slot && slot.faculty_id) {
-                      const cardClass = slot.subject_type === 'lab' ? 'slot-lab' : slot.subject_type === 'tutorial' ? 'slot-tutorial' : '';
-                      return `
-                        <td>
-                          <div class="slot-card ${cardClass}">
-                            <div class="slot-faculty">${slot.faculty_name}</div>
-                            <div class="slot-subject">${slot.subject_code}</div>
-                            <div class="slot-room">Room: ${slot.room || '—'}${slot.batch !== 'whole' ? ` (${slot.batch === 'batch1' ? 'B1' : 'B2'})` : ''}</div>
-                          </div>
-                        </td>
-                      `;
-                    } else {
-                      return `<td><span class="empty-slot">—</span></td>`;
-                    }
+          ${sectionsToExport.map(sec => `
+            <div class="page">
+              <div class="header">
+                <h1 class="title">College Timetable</h1>
+                <div class="subtitle">Semester: ${selectedSem} | Section: ${sec} | Generated: ${new Date().toLocaleDateString()}</div>
+              </div>
+              <table>
+                <thead>
+                  <tr>
+                    <th style="width: 90px;">Time</th>
+                    ${DAYS.map(d => `<th>${d}</th>`).join('')}
+                  </tr>
+                </thead>
+                <tbody>
+                  ${TIME_SLOTS.map(ts => {
+                    const isLunch = ts === '11:50-12:30';
+                    return `
+                      <tr>
+                        <td class="time-col">${isLunch ? 'LUNCH' : ts}</td>
+                        ${DAYS.map(day => {
+                          if (isLunch) {
+                            return `<td style="background-color: #fef2f2; color: #ef4444; font-weight: 700; font-size: 10px;">🍱 LUNCH</td>`;
+                          }
+                          
+                          const isSaturdayLibrary = day === 'Saturday' && ts === '12:30-01:20';
+                          const isSaturdaySac = day === 'Saturday' && (ts === '01:20-02:10' || ts === '02:10-03:00');
+                          
+                          if (isSaturdayLibrary) {
+                            return `<td style="background-color: #eef2ff; color: #6366f1; font-weight: 700; font-size: 9px;">📚 TG / LIBRARY</td>`;
+                          }
+                          if (isSaturdaySac) {
+                            return `<td style="background-color: #ecfdf5; color: #10b981; font-weight: 700; font-size: 9px;">🏅 SAC ACTIVITY</td>`;
+                          }
+
+                          const slot = slots.find(s => 
+                            s.day === day && 
+                            s.time_slot === ts &&
+                            s.subject_semester === parseInt(selectedSem) &&
+                            s.section === sec
+                          );
+                          if (slot && slot.faculty_id) {
+                            const cardClass = slot.subject_type === 'lab' ? 'slot-lab' : slot.subject_type === 'tutorial' ? 'slot-tutorial' : '';
+                            return `
+                              <td>
+                                <div class="slot-card ${cardClass}">
+                                  <div class="slot-faculty">${slot.faculty_name}</div>
+                                  <div class="slot-subject">${slot.subject_code}</div>
+                                  <div class="slot-room">Room: ${slot.room || '—'}${slot.batch !== 'whole' ? ` (${slot.batch === 'batch1' ? 'B1' : 'B2'})` : ''}</div>
+                                </div>
+                              </td>
+                            `;
+                          } else {
+                            return `<td><span class="empty-slot">—</span></td>`;
+                          }
+                        }).join('')}
+                      </tr>
+                    `;
                   }).join('')}
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
+                </tbody>
+              </table>
+            </div>
+          `).join('')}
           <script>
             window.onload = function() {
               window.print();
@@ -417,34 +505,122 @@ export default function TimetableTab() {
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: '0.75rem', alignSelf: 'flex-end' }}>
+          <div style={{ display: 'flex', gap: '0.75rem', alignSelf: 'flex-end', flexWrap: 'wrap' }}>
+            {selectedSem && (
+              <button 
+                className="btn btn-primary" 
+                onClick={handleAutoGenerate}
+                disabled={generating}
+                type="button"
+                style={{ background: 'linear-gradient(135deg, #6366f1, #4f46e5)' }}
+              >
+                {generating ? '⏳ Generating...' : '🤖 Auto-Generate'}
+              </button>
+            )}
             <button 
               className="btn btn-secondary" 
               onClick={handleExportExcel}
-              disabled={!selectedSem || !selectedSec}
+              disabled={!selectedSem || generating}
               type="button"
             >
-              📥 Export to Excel
+              {selectedSec ? '📥 Export to Excel' : '📥 Export All (Excel)'}
             </button>
             <button 
               className="btn btn-secondary" 
               onClick={handleExportPDF}
-              disabled={!selectedSem || !selectedSec}
+              disabled={!selectedSem || generating}
               type="button"
             >
-              📄 Export to PDF
+              {selectedSec ? '📄 Export to PDF' : '📄 Export All (PDF)'}
             </button>
           </div>
         </div>
       </div>
 
-      {!selectedSem || !selectedSec ? (
+      {!selectedSem ? (
         <div className="card" style={{ padding: '3rem 1.5rem', textAlign: 'center' }}>
           <div className="empty-state-icon">📅</div>
           <h3 style={{ marginBottom: '0.5rem' }}>No Cohort Selected</h3>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-            Select a **Semester** and **Section** above to load and manage the weekly timetable.
+            Select a **Semester** above to load and manage the weekly timetable.
           </p>
+        </div>
+      ) : !selectedSec ? (
+        <div className="card" style={{ padding: '1.5rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+            <div>
+              <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: '#f1f5f9' }}>
+                🏫 Semester {selectedSem} Sections Overview
+              </h3>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginTop: '0.25rem' }}>
+                Select a section card below to check, customize, or export its weekly schedule.
+              </p>
+            </div>
+            <button 
+              className="btn btn-primary" 
+              onClick={handleAutoGenerate}
+              disabled={generating}
+              style={{ background: 'linear-gradient(135deg, #6366f1, #4f46e5)' }}
+            >
+              {generating ? '⏳ Generating...' : '🤖 Auto-Generate Timetables'}
+            </button>
+          </div>
+
+          {generating ? (
+            <div className="loading" style={{ padding: '3rem 0', textAlign: 'center' }}>
+              <div className="spinner" style={{ margin: '0 auto 1rem auto' }} /> 
+              <p style={{ color: 'var(--text-secondary)' }}>Generating conflict-free timetables for all sections...</p>
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '1rem' }}>
+              {availableSections.map(sec => {
+                const secSlots = slots.filter(s => s.subject_semester === parseInt(selectedSem) && s.section === sec && s.faculty_id);
+                const secConflicts = conflicts.filter(c => 
+                  (c.slot1?.section === sec && c.slot1?.subject_semester === parseInt(selectedSem)) ||
+                  (c.slot2?.section === sec && c.slot2?.subject_semester === parseInt(selectedSem))
+                );
+                return (
+                  <div 
+                    key={sec} 
+                    className="card hover-card" 
+                    onClick={() => setSelectedSec(sec)}
+                    style={{ 
+                      cursor: 'pointer', 
+                      padding: '1.25rem', 
+                      borderLeft: '4px solid var(--accent-secondary)',
+                      background: 'rgba(255,255,255,0.01)',
+                      transition: 'transform 0.2s ease, background 0.2s ease'
+                    }}
+                    onMouseEnter={e => {
+                      e.currentTarget.style.transform = 'translateY(-2px)';
+                      e.currentTarget.style.background = 'rgba(255,255,255,0.03)';
+                    }}
+                    onMouseLeave={e => {
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.background = 'rgba(255,255,255,0.01)';
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                      <span style={{ fontWeight: 700, fontSize: '1.1rem', color: '#f1f5f9' }}>{sec}</span>
+                      <span style={{ color: 'var(--accent-secondary)' }}>➔</span>
+                    </div>
+                    <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>Scheduled Slots:</span>
+                        <strong style={{ color: '#f1f5f9' }}>{secSlots.length}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>Conflicts:</span>
+                        <strong style={{ color: secConflicts.length > 0 ? 'var(--accent-danger)' : 'var(--accent-success)' }}>
+                          {secConflicts.length}
+                        </strong>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       ) : (
         <>
@@ -488,37 +664,101 @@ export default function TimetableTab() {
                     </tr>
                   </thead>
                   <tbody>
-                    {TIME_SLOTS.map(ts => (
-                      <tr key={ts}>
-                        <td className="time-col">{ts}</td>
-                        {DAYS.map(day => {
-                          const slot = getSlot(day, ts);
-                          const conflict = isConflict(slot);
-                          const typeClass = slot?.subject_type ? typeColorMap[slot.subject_type] : '';
-                          return (
-                            <td
-                              key={day}
-                              className={conflict ? 'slot-conflict' : typeClass}
-                              onClick={() => openModal(day, ts)}
-                              title={slot ? `Click to edit: ${slot.faculty_name} — ${slot.subject_name}` : 'Click to add'}
-                            >
-                              {slot && slot.faculty_id ? (
-                                <div className="slot-cell">
-                                  <div className="slot-faculty">{slot.faculty_name}</div>
-                                  <div className="slot-subject">{slot.subject_name || slot.subject_code}</div>
-                                  <div className="slot-room">
-                                    {slot.room && `🏫 ${slot.room}`}
-                                    {slot.batch !== 'whole' && ` · ${slot.batch === 'batch1' ? 'B1' : 'B2'}`}
+                    {TIME_SLOTS.map(ts => {
+                      const isLunch = ts === '11:50-12:30';
+                      return (
+                        <tr key={ts}>
+                          <td className="time-col" style={{ fontWeight: isLunch ? 'bold' : 'normal' }}>
+                            {isLunch ? 'LUNCH' : ts}
+                          </td>
+                          {DAYS.map(day => {
+                            if (isLunch) {
+                              return (
+                                <td 
+                                  key={day} 
+                                  style={{ 
+                                    background: 'rgba(239, 68, 68, 0.08)', 
+                                    color: 'var(--accent-danger)', 
+                                    fontWeight: 700, 
+                                    textAlign: 'center', 
+                                    cursor: 'not-allowed',
+                                    fontSize: '0.85rem'
+                                  }} 
+                                  title="Lunch Break"
+                                >
+                                  🍱 LUNCH
+                                </td>
+                              );
+                            }
+                            
+                            const isSaturdayLibrary = day === 'Saturday' && ts === '12:30-01:20';
+                            const isSaturdaySac = day === 'Saturday' && (ts === '01:20-02:10' || ts === '02:10-03:00');
+                            
+                            if (isSaturdayLibrary) {
+                              return (
+                                <td 
+                                  key={day} 
+                                  style={{ 
+                                    background: 'rgba(99, 102, 241, 0.08)', 
+                                    color: 'var(--accent-secondary)', 
+                                    fontWeight: 700, 
+                                    textAlign: 'center', 
+                                    cursor: 'not-allowed',
+                                    fontSize: '0.8rem'
+                                  }} 
+                                  title="TG / Library"
+                                >
+                                  📚 TG / LIBRARY
+                                </td>
+                              );
+                            }
+                            if (isSaturdaySac) {
+                              return (
+                                <td 
+                                  key={day} 
+                                  style={{ 
+                                    background: 'rgba(16, 185, 129, 0.08)', 
+                                    color: 'var(--accent-success)', 
+                                    fontWeight: 700, 
+                                    textAlign: 'center', 
+                                    cursor: 'not-allowed',
+                                    fontSize: '0.8rem'
+                                  }} 
+                                  title="SAC Activity"
+                                >
+                                  🏅 SAC ACTIVITY
+                                </td>
+                              );
+                            }
+
+                            const slot = getSlot(day, ts);
+                            const conflict = isConflict(slot);
+                            const typeClass = slot?.subject_type ? typeColorMap[slot.subject_type] : '';
+                            return (
+                              <td
+                                key={day}
+                                className={conflict ? 'slot-conflict' : typeClass}
+                                onClick={() => openModal(day, ts)}
+                                title={slot ? `Click to edit: ${slot.faculty_name} — ${slot.subject_name}` : 'Click to add'}
+                              >
+                                {slot && slot.faculty_id ? (
+                                  <div className="slot-cell">
+                                    <div className="slot-faculty">{slot.faculty_name}</div>
+                                    <div className="slot-subject">{slot.subject_name || slot.subject_code}</div>
+                                    <div className="slot-room">
+                                      {slot.room && `🏫 ${slot.room}`}
+                                      {slot.batch !== 'whole' && ` · ${slot.batch === 'batch1' ? 'B1' : 'B2'}`}
+                                    </div>
                                   </div>
-                                </div>
-                              ) : (
-                                <div className="slot-cell empty" />
-                              )}
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
+                                ) : (
+                                  <div className="slot-cell empty" />
+                                )}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -529,11 +769,33 @@ export default function TimetableTab() {
 
       {/* Slot Modal */}
       {modalOpen && selectedCell && (() => {
-        const activeBranch = selectedSec.startsWith('CSE') ? 'CSE' : 'CSBS';
-        const filteredSubjects = subjects.filter(s => 
-          s.semester === parseInt(selectedSem) &&
-          s.branch.toUpperCase() === activeBranch.toUpperCase()
-        );
+        // Extract all unique subjects from the faculty tab (faculty list), distinguishing by code and type
+        const allSubjectsFromFaculty = [];
+        const seenKeys = new Set();
+        faculty.forEach(f => {
+          if (Array.isArray(f.subjects)) {
+            f.subjects.forEach(sub => {
+              const code = sub.subject_code || sub.code;
+              const name = sub.subject_name || sub.name;
+              const type = sub.subject_type || sub.type || 'theory';
+              if (code) {
+                const key = `${code.toUpperCase()}_${type.toLowerCase()}`;
+                if (!seenKeys.has(key)) {
+                  seenKeys.add(key);
+                  allSubjectsFromFaculty.push({
+                    id: sub.subject_id || sub.id,
+                    name: name,
+                    code: code.toUpperCase(),
+                    branch: sub.subject_branch || sub.branch,
+                    semester: sub.subject_semester || sub.semester,
+                    type: type
+                  });
+                }
+              }
+            });
+          }
+        });
+        allSubjectsFromFaculty.sort((a, b) => a.name.localeCompare(b.name));
 
         return (
           <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setModalOpen(false)}>
@@ -560,7 +822,11 @@ export default function TimetableTab() {
                   <label>Subject</label>
                   <select value={slotForm.subject_id} onChange={e => setSlotForm(p => ({ ...p, subject_id: e.target.value }))}>
                     <option value="">— Select Subject —</option>
-                    {filteredSubjects.map(s => <option key={s.id} value={s.id}>{s.name} ({s.code})</option>)}
+                    {allSubjectsFromFaculty.map(s => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} ({s.code}) — {s.type.toUpperCase()} — {s.branch} Sem {s.semester}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div className="form-group">

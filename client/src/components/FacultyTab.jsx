@@ -29,7 +29,7 @@ export default function FacultyTab() {
   const addSubjectRow = () => {
     setForm(prev => ({
       ...prev,
-      subjects: [...prev.subjects, { name: '', code: '', branch: 'CSE', semester: '3', type: 'theory', batch_option: 'whole', lecture_count: '3' }]
+      subjects: [...prev.subjects, { name: '', code: '', branch: 'CSE', semester: '3', type: 'theory', batch_option: 'whole', lecture_count: '3', section: 'CSE A' }]
     }));
   };
 
@@ -243,6 +243,25 @@ export default function FacultyTab() {
               type = 'lab';
             }
 
+            // Extract section from sProgram
+            let section = '';
+            if (sProgram) {
+              const parts = sProgram.split('/');
+              if (parts.length > 1) {
+                section = parts[1].trim();
+              } else {
+                section = sProgram.trim();
+              }
+              
+              if (section.toUpperCase().includes('CSBS') || section.toUpperCase() === 'CS CSBS') {
+                if (semNum === 6) {
+                  section = 'CSBS VI';
+                } else {
+                  section = 'CSBS IV';
+                }
+              }
+            }
+
             const lectureCount = type === 'lab' ? 2 : 3;
 
             currentFaculty.subjects.push({
@@ -252,7 +271,8 @@ export default function FacultyTab() {
               semester: semNum,
               type: type,
               batch_option: 'whole',
-              lecture_count: lectureCount
+              lecture_count: lectureCount,
+              section: section
             });
           }
         }
@@ -572,6 +592,26 @@ export default function FacultyTab() {
                         )}
 
                         <div className="form-group">
+                          <label style={{ fontSize: '0.68rem', letterSpacing: '0.02em' }}>Section *</label>
+                          <select 
+                            value={sub.section || ''} 
+                            onChange={e => updateSubjectRow(idx, 'section', e.target.value)}
+                          >
+                            <option value="">All / None</option>
+                            <option value="CSE A">CSE A</option>
+                            <option value="CSE B">CSE B</option>
+                            <option value="CSE C">CSE C</option>
+                            <option value="CSE D">CSE D</option>
+                            <option value="CSE E">CSE E</option>
+                            <option value="CSE F">CSE F</option>
+                            <option value="CSBS A">CSBS A</option>
+                            <option value="CSBS B">CSBS B</option>
+                            <option value="CSBS IV">CSBS IV</option>
+                            <option value="CSBS VI">CSBS VI</option>
+                          </select>
+                        </div>
+
+                        <div className="form-group">
                           <label style={{ fontSize: '0.68rem', letterSpacing: '0.02em' }}>Lectures / Week *</label>
                           <input 
                             type="number" 
@@ -670,6 +710,11 @@ export default function FacultyTab() {
                               <span style={{ fontWeight: 700, color: 'var(--accent-secondary)' }}>{sub.subject_code}</span>
                               <span style={{ color: 'var(--text-primary)' }}>{sub.subject_name}</span>
                               <span className="badge badge-whole" style={{ fontSize: '0.62rem', padding: '0.05rem 0.35rem' }}>{sub.subject_branch}</span>
+                              {sub.section && (
+                                <span className="badge badge-whole" style={{ fontSize: '0.62rem', padding: '0.05rem 0.35rem', background: '#3b82f6', color: '#fff' }}>
+                                  {sub.section}
+                                </span>
+                              )}
                               <span className={`badge ${sub.subject_type === 'lab' ? 'badge-lab' : sub.subject_type === 'tutorial' ? 'badge-tutorial' : 'badge-theory'}`} style={{ fontSize: '0.62rem', padding: '0.05rem 0.35rem' }}>
                                 {sub.subject_type === 'lab' ? `Lab (${sub.batch_option === 'whole' ? 'Whole' : sub.batch_option === 'batch1' ? 'B1' : 'B2'})` : sub.subject_type}
                               </span>

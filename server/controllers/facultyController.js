@@ -15,6 +15,7 @@ const saveFacultySubjects = async (client, facultyId, subjectsList) => {
     const semester = s.subject_semester || s.semester;
     const type = s.subject_type || s.type;
     const batch_option = s.batch_option || 'whole';
+    const section = (s.section || '').trim();
     const lecture_count = s.lecture_count;
 
     if (!name || !code) continue;
@@ -28,7 +29,7 @@ const saveFacultySubjects = async (client, facultyId, subjectsList) => {
     const finalCredits = finalLectureCount;
 
     let subjectId;
-    const existingSubject = await client.query('SELECT id FROM subjects WHERE LOWER(code) = $1', [code.trim().toLowerCase()]);
+    const existingSubject = await client.query('SELECT id FROM subjects WHERE LOWER(code) = $1 AND type = $2', [code.trim().toLowerCase(), type || 'theory']);
     
     if (existingSubject.rowCount > 0) {
       subjectId = existingSubject.rows[0].id;
@@ -40,17 +41,17 @@ const saveFacultySubjects = async (client, facultyId, subjectsList) => {
       const newSubject = await client.query(
         `INSERT INTO subjects (name, code, branch, semester, type, credits) 
          VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-        [name.trim(), code.trim().toUpperCase(), branch ? branch.trim() : 'CSE', parseInt(semester) || 1, type || 'theory', finalCredits]
+         [name.trim(), code.trim().toUpperCase(), branch ? branch.trim() : 'CSE', parseInt(semester) || 1, type || 'theory', finalCredits]
       );
       subjectId = newSubject.rows[0].id;
     }
 
     await client.query(
-      `INSERT INTO faculty_subjects (faculty_id, subject_id, lecture_count, batch_option)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (faculty_id, subject_id, batch_option) 
+      `INSERT INTO faculty_subjects (faculty_id, subject_id, lecture_count, batch_option, section)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (faculty_id, subject_id, batch_option, section) 
        DO UPDATE SET lecture_count = EXCLUDED.lecture_count`,
-      [facultyId, subjectId, finalLectureCount, batch_option]
+      [facultyId, subjectId, finalLectureCount, batch_option, section]
     );
   }
 };
@@ -72,7 +73,8 @@ const getAll = async (req, res) => {
               'subject_type', s.type,
               'subject_credits', s.credits,
               'lecture_count', fs.lecture_count,
-              'batch_option', fs.batch_option
+              'batch_option', fs.batch_option,
+              'section', fs.section
             )
           ) FILTER (WHERE s.id IS NOT NULL),
           '[]'
@@ -135,7 +137,8 @@ const create = async (req, res) => {
               'subject_type', s.type,
               'subject_credits', s.credits,
               'lecture_count', fs.lecture_count,
-              'batch_option', fs.batch_option
+              'batch_option', fs.batch_option,
+              'section', fs.section
             )
           ) FILTER (WHERE s.id IS NOT NULL),
           '[]'
@@ -203,7 +206,8 @@ const update = async (req, res) => {
               'subject_type', s.type,
               'subject_credits', s.credits,
               'lecture_count', fs.lecture_count,
-              'batch_option', fs.batch_option
+              'batch_option', fs.batch_option,
+              'section', fs.section
             )
           ) FILTER (WHERE s.id IS NOT NULL),
           '[]'
@@ -313,7 +317,8 @@ const bulkCreate = async (req, res) => {
                 'subject_type', s.type,
                 'subject_credits', s.credits,
                 'lecture_count', fs.lecture_count,
-                'batch_option', fs.batch_option
+                'batch_option', fs.batch_option,
+                'section', fs.section
               )
             ) FILTER (WHERE s.id IS NOT NULL),
             '[]'
