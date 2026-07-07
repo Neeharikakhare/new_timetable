@@ -11,6 +11,7 @@ const api = axios.create({
 export const facultyAPI = {
   getAll: () => api.get('/faculty'),
   create: (data) => api.post('/faculty', data),
+  bulkCreate: (data) => api.post('/faculty/bulk', data),
   update: (id, data) => api.put(`/faculty/${id}`, data),
   delete: (id) => api.delete(`/faculty/${id}`)
 };
@@ -38,7 +39,8 @@ export const timetableAPI = {
   getAll: () => api.get('/timetable'),
   upsertSlot: (data) => api.post('/timetable/slot', data),
   deleteSlot: (id) => api.delete(`/timetable/slot/${id}`),
-  getConflicts: () => api.get('/timetable/conflicts')
+  getConflicts: () => api.get('/timetable/conflicts'),
+  generateSemester: (semester) => api.post('/timetable/generate-semester', { semester })
 };
 
 // AI APIs

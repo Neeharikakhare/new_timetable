@@ -1,38 +1,49 @@
 const { Client, Pool } = require('pg');
 
-const pgConfig = {
-  host: process.env.PGHOST || 'localhost',
-  port: process.env.PGPORT || 5432,
-  user: process.env.PGUSER || 'postgres',
-  password: process.env.PGPASSWORD || 'postgres',
-};
+const useConnectionString = !!process.env.DATABASE_URL;
+
+const pgConfig = useConnectionString
+  ? {
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false }
+    }
+  : {
+      host: process.env.PGHOST || 'localhost',
+      port: process.env.PGPORT || 5432,
+      user: process.env.PGUSER || 'postgres',
+      password: process.env.PGPASSWORD || 'postgres',
+    };
 
 const dbName = process.env.PGDATABASE || 'timetable';
 
 let pool;
 
 async function initDb() {
-  // First, connect to postgres default database to ensure target database exists
-  const client = new Client({ ...pgConfig, database: 'postgres' });
-  try {
-    await client.connect();
-    const res = await client.query('SELECT 1 FROM pg_database WHERE datname = $1', [dbName]);
-    if (res.rowCount === 0) {
-      console.log(`Database "${dbName}" does not exist. Creating...`);
-      // CREATE DATABASE cannot run inside transaction or be parameterized for db name
-      await client.query(`CREATE DATABASE "${dbName.replace(/"/g, '""')}"`);
-      console.log(`Database "${dbName}" created successfully.`);
-    }
-  } catch (err) {
-    console.error('Error checking/creating database:', err.message);
-  } finally {
+  if (!useConnectionString) {
+    // First, connect to postgres default database to ensure target database exists
+    const client = new Client({ ...pgConfig, database: 'postgres' });
     try {
-      await client.end();
-    } catch (e) {}
+      await client.connect();
+      const res = await client.query('SELECT 1 FROM pg_database WHERE datname = $1', [dbName]);
+      if (res.rowCount === 0) {
+        console.log(`Database "${dbName}" does not exist. Creating...`);
+        // CREATE DATABASE cannot run inside transaction or be parameterized for db name
+        await client.query(`CREATE DATABASE "${dbName.replace(/"/g, '""')}"`);
+        console.log(`Database "${dbName}" created successfully.`);
+      }
+    } catch (err) {
+      console.error('Error checking/creating database:', err.message);
+    } finally {
+      try {
+        await client.end();
+      } catch (e) {}
+    }
   }
 
   // Now create the pool for the target database
-  pool = new Pool({ ...pgConfig, database: dbName });
+  pool = useConnectionString
+    ? new Pool(pgConfig)
+    : new Pool({ ...pgConfig, database: dbName });
 
   // Initialize schema
   try {
@@ -53,10 +64,11 @@ async function initDb() {
         name VARCHAR(255) NOT NULL,
         branch VARCHAR(100) NOT NULL,
         semester INTEGER NOT NULL,
-        code VARCHAR(50) UNIQUE NOT NULL,
+        code VARCHAR(50) NOT NULL,
         type VARCHAR(20) NOT NULL CHECK(type IN ('theory','lab','tutorial')),
         credits INTEGER NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT unique_code_type UNIQUE(code, type)
       );
 
       CREATE TABLE IF NOT EXISTS faculty_subjects (
@@ -65,8 +77,9 @@ async function initDb() {
         subject_id INTEGER NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
         lecture_count INTEGER NOT NULL,
         batch_option VARCHAR(20) DEFAULT 'whole' CHECK(batch_option IN ('whole','batch1','batch2')),
+        section VARCHAR(50),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        CONSTRAINT unique_faculty_subject_batch UNIQUE(faculty_id, subject_id, batch_option)
+        CONSTRAINT unique_faculty_subject_batch_section UNIQUE(faculty_id, subject_id, batch_option, section)
       );
 
       CREATE TABLE IF NOT EXISTS timetable_slots (
@@ -90,6 +103,10 @@ async function initDb() {
         CONSTRAINT unique_date_faculty UNIQUE(date, faculty_id)
       );
     `);
+
+    // Add section column if not exists
+    await pool.query('ALTER TABLE timetable_slots ADD COLUMN IF NOT EXISTS section VARCHAR(50);');
+
     console.log('PostgreSQL schema initialized successfully.');
   } catch (err) {
     console.error('Error initializing schema:', err.message);

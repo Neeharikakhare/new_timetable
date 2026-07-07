@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Toaster } from 'react-hot-toast';
 import FacultyTab from './components/FacultyTab';
-import SubjectsTab from './components/SubjectsTab';
 import MappingTab from './components/MappingTab';
 import TimetableTab from './components/TimetableTab';
 import AIManagerTab from './components/AIManagerTab';
@@ -9,7 +8,6 @@ import './index.css';
 
 const TABS = [
   { id: 'faculty', label: 'Faculty', icon: '👨‍🏫' },
-  { id: 'subjects', label: 'Subjects', icon: '📚' },
   { id: 'mapping', label: 'Assignments', icon: '🔗' },
   { id: 'timetable', label: 'Timetable', icon: '📅' },
   { id: 'ai', label: 'AI Manager', icon: '🤖' },
@@ -66,7 +64,6 @@ export default function App() {
 
       <main className="app-content">
         {activeTab === 'faculty' && <FacultyTab />}
-        {activeTab === 'subjects' && <SubjectsTab />}
         {activeTab === 'mapping' && <MappingTab />}
         {activeTab === 'timetable' && <TimetableTab />}
         {activeTab === 'ai' && <AIManagerTab />}

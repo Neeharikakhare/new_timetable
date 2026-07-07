@@ -16,6 +16,7 @@ const getAll = async (req, res) => {
         fs.subject_id,
         fs.lecture_count,
         fs.batch_option,
+        fs.section,
         f.name AS faculty_name,
         f.designation AS faculty_designation,
         s.name AS subject_name,
@@ -38,7 +39,7 @@ const getAll = async (req, res) => {
 
 const create = async (req, res) => {
   try {
-    const { faculty_id, subject_id, lecture_count_override, batch_option } = req.body;
+    const { faculty_id, subject_id, lecture_count_override, batch_option, section } = req.body;
     if (!faculty_id || !subject_id) {
       return res.status(400).json({ error: 'Faculty and Subject are required' });
     }
@@ -54,9 +55,10 @@ const create = async (req, res) => {
     }
 
     const batch = batch_option || 'whole';
+    const sec = (section || '').trim();
     const checkDuplicate = await db.query(
-      'SELECT 1 FROM faculty_subjects WHERE faculty_id = $1 AND subject_id = $2 AND batch_option = $3',
-      [faculty_id, subject_id, batch]
+      'SELECT 1 FROM faculty_subjects WHERE faculty_id = $1 AND subject_id = $2 AND batch_option = $3 AND section = $4',
+      [faculty_id, subject_id, batch, sec]
     );
 
     if (checkDuplicate.rowCount > 0) {
@@ -66,9 +68,9 @@ const create = async (req, res) => {
     const lectureCount = lecture_count_override ? parseInt(lecture_count_override) : calcLectureCount(subject.rows[0].type);
 
     const insertResult = await db.query(
-      `INSERT INTO faculty_subjects (faculty_id, subject_id, lecture_count, batch_option) 
-       VALUES ($1, $2, $3, $4) RETURNING *`,
-      [parseInt(faculty_id), parseInt(subject_id), lectureCount, batch]
+      `INSERT INTO faculty_subjects (faculty_id, subject_id, lecture_count, batch_option, section) 
+       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [parseInt(faculty_id), parseInt(subject_id), lectureCount, batch, sec]
     );
 
     const queryEnriched = `
@@ -78,6 +80,7 @@ const create = async (req, res) => {
         fs.subject_id,
         fs.lecture_count,
         fs.batch_option,
+        fs.section,
         f.name AS faculty_name,
         f.designation AS faculty_designation,
         s.name AS subject_name,
@@ -101,7 +104,7 @@ const create = async (req, res) => {
 const update = async (req, res) => {
   try {
     const { id } = req.params;
-    const { lecture_count, batch_option } = req.body;
+    const { lecture_count, batch_option, section } = req.body;
 
     const existing = await db.query('SELECT 1 FROM faculty_subjects WHERE id = $1', [id]);
     if (existing.rowCount === 0) {
@@ -118,6 +121,10 @@ const update = async (req, res) => {
       params.push(batch_option);
       updates.push(`batch_option = $${params.length}`);
     }
+    if (section !== undefined) {
+      params.push((section || '').trim());
+      updates.push(`section = $${params.length}`);
+    }
 
     params.push(id);
     const query = `UPDATE faculty_subjects SET ${updates.join(', ')} WHERE id = $${params.length} RETURNING *`;
@@ -130,6 +137,7 @@ const update = async (req, res) => {
         fs.subject_id,
         fs.lecture_count,
         fs.batch_option,
+        fs.section,
         f.name AS faculty_name,
         f.designation AS faculty_designation,
         s.name AS subject_name,
