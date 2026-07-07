@@ -90,6 +90,10 @@ async function initDb() {
         CONSTRAINT unique_date_faculty UNIQUE(date, faculty_id)
       );
     `);
+
+    // Add section column if not exists
+    await pool.query('ALTER TABLE timetable_slots ADD COLUMN IF NOT EXISTS section VARCHAR(50);');
+
     console.log('PostgreSQL schema initialized successfully.');
   } catch (err) {
     console.error('Error initializing schema:', err.message);

@@ -11,10 +11,13 @@ const getAll = async (req, res) => {
         ts.subject_id,
         ts.room,
         ts.batch,
+        ts.section,
         f.name AS faculty_name,
         s.name AS subject_name,
         s.type AS subject_type,
-        s.code AS subject_code
+        s.code AS subject_code,
+        s.semester AS subject_semester,
+        s.branch AS subject_branch
       FROM timetable_slots ts
       LEFT JOIN faculty f ON ts.faculty_id = f.id
       LEFT JOIN subjects s ON ts.subject_id = s.id
@@ -29,7 +32,7 @@ const getAll = async (req, res) => {
 
 const upsertSlot = async (req, res) => {
   try {
-    const { id, day, time_slot, faculty_id, subject_id, room, batch } = req.body;
+    const { id, day, time_slot, faculty_id, subject_id, room, batch, section } = req.body;
     if (!day || !time_slot) {
       return res.status(400).json({ error: 'Day and time slot are required' });
     }
@@ -59,31 +62,63 @@ const upsertSlot = async (req, res) => {
       }
     }
 
+    // Check conflict: same section same day+time
+    if (section) {
+      let sectionConflictQuery = `
+        SELECT ts.id, s.name AS subject_name, ts.batch 
+        FROM timetable_slots ts
+        LEFT JOIN subjects s ON ts.subject_id = s.id
+        WHERE ts.day = $1 AND ts.time_slot = $2 AND ts.section = $3
+      `;
+      const sectionParams = [day, time_slot, section];
+      
+      if (id) {
+        sectionParams.push(parseInt(id));
+        sectionConflictQuery += ' AND ts.id <> $4';
+      }
+      
+      const sectionCheck = await db.query(sectionConflictQuery, sectionParams);
+      if (sectionCheck.rowCount > 0) {
+        let hasConflict = false;
+        let conflictMsg = '';
+        for (const row of sectionCheck.rows) {
+          if (batch === 'whole' || row.batch === 'whole' || batch === row.batch) {
+            hasConflict = true;
+            conflictMsg = `Conflict: Section ${section} (${row.batch === 'whole' ? 'Whole Batch' : row.batch}) is already scheduled for "${row.subject_name}" at this time.`;
+            break;
+          }
+        }
+        if (hasConflict) {
+          return res.status(400).json({ error: conflictMsg });
+        }
+      }
+    }
+
     let result;
     if (id) {
       // Update
       const query = `
         UPDATE timetable_slots 
-        SET day=$1, time_slot=$2, faculty_id=$3, subject_id=$4, room=$5, batch=$6 
-        WHERE id=$7 RETURNING *
+        SET day=$1, time_slot=$2, faculty_id=$3, subject_id=$4, room=$5, batch=$6, section=$7 
+        WHERE id=$8 RETURNING *
       `;
       result = await db.query(query, [
         day, time_slot,
         faculty_id ? parseInt(faculty_id) : null,
         subject_id ? parseInt(subject_id) : null,
-        room || '', batch || 'whole', parseInt(id)
+        room || '', batch || 'whole', section || null, parseInt(id)
       ]);
     } else {
       // Insert
       const query = `
-        INSERT INTO timetable_slots (day, time_slot, faculty_id, subject_id, room, batch) 
-        VALUES ($1, $2, $3, $4, $5, $6) RETURNING *
+        INSERT INTO timetable_slots (day, time_slot, faculty_id, subject_id, room, batch, section) 
+        VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *
       `;
       result = await db.query(query, [
         day, time_slot,
         faculty_id ? parseInt(faculty_id) : null,
         subject_id ? parseInt(subject_id) : null,
-        room || '', batch || 'whole'
+        room || '', batch || 'whole', section || null
       ]);
     }
 
@@ -97,10 +132,13 @@ const upsertSlot = async (req, res) => {
         ts.subject_id,
         ts.room,
         ts.batch,
+        ts.section,
         f.name AS faculty_name,
         s.name AS subject_name,
         s.type AS subject_type,
-        s.code AS subject_code
+        s.code AS subject_code,
+        s.semester AS subject_semester,
+        s.branch AS subject_branch
       FROM timetable_slots ts
       LEFT JOIN faculty f ON ts.faculty_id = f.id
       LEFT JOIN subjects s ON ts.subject_id = s.id
