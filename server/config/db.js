@@ -1,38 +1,49 @@
 const { Client, Pool } = require('pg');
 
-const pgConfig = {
-  host: process.env.PGHOST || 'localhost',
-  port: process.env.PGPORT || 5432,
-  user: process.env.PGUSER || 'postgres',
-  password: process.env.PGPASSWORD || 'postgres',
-};
+const useConnectionString = !!process.env.DATABASE_URL;
+
+const pgConfig = useConnectionString
+  ? {
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false }
+    }
+  : {
+      host: process.env.PGHOST || 'localhost',
+      port: process.env.PGPORT || 5432,
+      user: process.env.PGUSER || 'postgres',
+      password: process.env.PGPASSWORD || 'postgres',
+    };
 
 const dbName = process.env.PGDATABASE || 'timetable';
 
 let pool;
 
 async function initDb() {
-  // First, connect to postgres default database to ensure target database exists
-  const client = new Client({ ...pgConfig, database: 'postgres' });
-  try {
-    await client.connect();
-    const res = await client.query('SELECT 1 FROM pg_database WHERE datname = $1', [dbName]);
-    if (res.rowCount === 0) {
-      console.log(`Database "${dbName}" does not exist. Creating...`);
-      // CREATE DATABASE cannot run inside transaction or be parameterized for db name
-      await client.query(`CREATE DATABASE "${dbName.replace(/"/g, '""')}"`);
-      console.log(`Database "${dbName}" created successfully.`);
-    }
-  } catch (err) {
-    console.error('Error checking/creating database:', err.message);
-  } finally {
+  if (!useConnectionString) {
+    // First, connect to postgres default database to ensure target database exists
+    const client = new Client({ ...pgConfig, database: 'postgres' });
     try {
-      await client.end();
-    } catch (e) {}
+      await client.connect();
+      const res = await client.query('SELECT 1 FROM pg_database WHERE datname = $1', [dbName]);
+      if (res.rowCount === 0) {
+        console.log(`Database "${dbName}" does not exist. Creating...`);
+        // CREATE DATABASE cannot run inside transaction or be parameterized for db name
+        await client.query(`CREATE DATABASE "${dbName.replace(/"/g, '""')}"`);
+        console.log(`Database "${dbName}" created successfully.`);
+      }
+    } catch (err) {
+      console.error('Error checking/creating database:', err.message);
+    } finally {
+      try {
+        await client.end();
+      } catch (e) {}
+    }
   }
 
   // Now create the pool for the target database
-  pool = new Pool({ ...pgConfig, database: dbName });
+  pool = useConnectionString
+    ? new Pool(pgConfig)
+    : new Pool({ ...pgConfig, database: dbName });
 
   // Initialize schema
   try {

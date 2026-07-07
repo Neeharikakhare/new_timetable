@@ -145,12 +145,12 @@ export default function FacultyTab() {
           sem: headers.findIndex(h => h.includes('sem'))
         };
 
-        // Fallbacks
-        if (colIdx.name === -1) colIdx.name = headers.findIndex(h => h.includes('faculty') || h.includes('name'));
-        if (colIdx.cadre === -1) colIdx.cadre = headers.findIndex(h => h.includes('designation') || h.includes('cadre') || h.includes('role'));
-        if (colIdx.subCode === -1) colIdx.subCode = headers.findIndex(h => h.includes('code'));
-        if (colIdx.subName === -1) colIdx.subName = headers.findIndex(h => h.includes('subject'));
-        if (colIdx.program === -1) colIdx.program = headers.findIndex(h => h.includes('section') || h.includes('program'));
+        // Broaden column match fallbacks
+        if (colIdx.name === -1) colIdx.name = headers.findIndex(h => h.includes('faculty') || h.includes('name') || h === 'fac');
+        if (colIdx.cadre === -1) colIdx.cadre = headers.findIndex(h => h.includes('designation') || h.includes('cadre') || h.includes('role') || h.includes('post'));
+        if (colIdx.subCode === -1) colIdx.subCode = headers.findIndex(h => h.includes('sub. code') || h.includes('subject code') || h.includes('code') || h.includes('sub_code') || h.includes('subject_code'));
+        if (colIdx.subName === -1) colIdx.subName = headers.findIndex(h => h.includes('subject') || h.includes('sub name') || h.includes('subject name'));
+        if (colIdx.program === -1) colIdx.program = headers.findIndex(h => h.includes('section') || h.includes('program') || h.includes('branch') || h.includes('class'));
         if (colIdx.sem === -1) colIdx.sem = headers.findIndex(h => h.includes('sem') || h.includes('semester'));
 
         if (colIdx.name === -1 || colIdx.subCode === -1) {
@@ -169,41 +169,46 @@ export default function FacultyTab() {
           const fName = colIdx.name !== -1 ? String(row[colIdx.name] || '').trim() : '';
           const fCadre = colIdx.cadre !== -1 ? String(row[colIdx.cadre] || '').trim() : '';
 
-          // If Name is present, we start a new faculty group
+          // If Name is present, lookup existing or start a new faculty group to group multiple sections/subjects
           if (fName) {
-            let design = fCadre || 'Assistant Professor';
-            const lowerDesign = design.toLowerCase().trim();
-            if (lowerDesign.includes('lab assistant') || lowerDesign.includes('lab')) {
-              design = 'Lab Assistant';
-            } else if (lowerDesign.includes('asst') || lowerDesign.includes('assistant')) {
-              design = 'Assistant Professor';
-            } else if (lowerDesign.includes('assoc') || lowerDesign.includes('associate')) {
-              design = 'Associate Professor';
-            } else if (lowerDesign.includes('prof') || lowerDesign.includes('head')) {
-              design = 'Professor';
-            } else if (lowerDesign.includes('lecturer')) {
-              design = 'Lecturer';
-            } else if (lowerDesign.includes('hod')) {
-              design = 'HOD';
-            } else if (lowerDesign.includes('principal')) {
-              design = 'Principal';
+            const existingFac = parsedFacultyList.find(fac => fac.name.trim().toLowerCase() === fName.toLowerCase());
+            if (existingFac) {
+              currentFaculty = existingFac;
             } else {
-              design = 'Assistant Professor';
-            }
+              let design = fCadre || 'Assistant Professor';
+              const lowerDesign = design.toLowerCase().trim();
+              if (lowerDesign.includes('lab assistant') || lowerDesign.includes('lab')) {
+                design = 'Lab Assistant';
+              } else if (lowerDesign.includes('asst') || lowerDesign.includes('assistant')) {
+                design = 'Assistant Professor';
+              } else if (lowerDesign.includes('assoc') || lowerDesign.includes('associate')) {
+                design = 'Associate Professor';
+              } else if (lowerDesign.includes('prof') || lowerDesign.includes('head')) {
+                design = 'Professor';
+              } else if (lowerDesign.includes('lecturer')) {
+                design = 'Lecturer';
+              } else if (lowerDesign.includes('hod')) {
+                design = 'HOD';
+              } else if (lowerDesign.includes('principal')) {
+                design = 'Principal';
+              } else {
+                design = 'Assistant Professor';
+              }
 
-            currentFaculty = {
-              rowNum: i + rowNumOffset,
-              name: fName,
-              designation: design,
-              phone: '',
-              email: '', // empty email will be treated as null in database
-              time_in: '09:00',
-              time_out: '17:00',
-              subjects: [],
-              errors: [],
-              isValid: true
-            };
-            parsedFacultyList.push(currentFaculty);
+              currentFaculty = {
+                rowNum: i + rowNumOffset,
+                name: fName,
+                designation: design,
+                phone: '',
+                email: '', // empty email will be treated as null in database
+                time_in: '09:00',
+                time_out: '17:00',
+                subjects: [],
+                errors: [],
+                isValid: true
+              };
+              parsedFacultyList.push(currentFaculty);
+            }
           }
 
           // Parse subject info for the row
@@ -247,8 +252,19 @@ export default function FacultyTab() {
             let section = '';
             if (sProgram) {
               const parts = sProgram.split('/');
-              if (parts.length > 1) {
-                section = parts[1].trim();
+              if (parts.length > 2) {
+                // e.g. "B.Tech/CSE/A" -> "CSE A"
+                section = `${parts[1].trim()} ${parts[2].trim()}`;
+              } else if (parts.length === 2) {
+                const p0 = parts[0].trim();
+                const p1 = parts[1].trim();
+                if (['CSE', 'CSBS', 'IT', 'ECE'].includes(p0.toUpperCase())) {
+                  // e.g. "CSE/A" -> "CSE A"
+                  section = `${p0} ${p1}`;
+                } else {
+                  // e.g. "B.Tech/CSE A" or "B.Tech/CSE"
+                  section = p1;
+                }
               } else {
                 section = sProgram.trim();
               }

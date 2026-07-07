@@ -784,75 +784,126 @@ export default function TimetableTab() {
                   seenKeys.add(key);
                   allSubjectsFromFaculty.push({
                     id: sub.subject_id || sub.id,
-                    name: name,
-                    code: code.toUpperCase(),
-                    branch: sub.subject_branch || sub.branch,
-                    semester: sub.subject_semester || sub.semester,
-                    type: type
-                  });
+                      name: name,
+                      code: code.toUpperCase(),
+                      branch: sub.subject_branch || sub.branch,
+                      semester: sub.subject_semester || sub.semester,
+                      type: type
+                    });
+                  }
                 }
-              }
-            });
-          }
-        });
-        allSubjectsFromFaculty.sort((a, b) => a.name.localeCompare(b.name));
+              });
+            }
+          });
+          allSubjectsFromFaculty.sort((a, b) => a.name.localeCompare(b.name));
 
-        return (
-          <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setModalOpen(false)}>
-            <div className="modal">
-              <div className="modal-header">
-                <div>
-                  <div className="modal-title">{editingSlot ? '✏️ Edit Slot' : '➕ Add Slot'}</div>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
-                    {selectedCell.day} · {selectedCell.timeSlot} · Section {selectedSec}
+          const filteredSubjects = allSubjectsFromFaculty.filter(s => 
+            !selectedSem || String(s.semester) === String(selectedSem)
+          );
+
+          const selectedSub = allSubjectsFromFaculty.find(s => String(s.id) === String(slotForm.subject_id));
+
+          const sortedFaculty = [...faculty].sort((a, b) => {
+            if (!slotForm.subject_id) {
+              return a.name.localeCompare(b.name);
+            }
+            const getMappingScore = (f) => {
+              if (!f.subjects) return 0;
+              const subSecs = f.subjects
+                .filter(sub => String(sub.subject_id) === String(slotForm.subject_id) || (selectedSub && sub.code?.toUpperCase() === selectedSub.code?.toUpperCase()))
+                .map(sub => sub.section)
+                .filter(Boolean);
+              if (subSecs.includes(selectedSec)) return 3; // best: teaches this subject in this section
+              if (subSecs.length > 0) return 2; // medium: teaches this subject in other sections
+              const hasAnySec = f.subjects.some(sub => sub.section === selectedSec);
+              if (hasAnySec) return 1; // teaches in this section but other subjects
+              return 0;
+            };
+            const scoreA = getMappingScore(a);
+            const scoreB = getMappingScore(b);
+            if (scoreA !== scoreB) return scoreB - scoreA;
+            return a.name.localeCompare(b.name);
+          });
+
+          const getFacultyLabel = (f) => {
+            if (!f.subjects || f.subjects.length === 0) return f.name;
+            if (slotForm.subject_id) {
+              const subSecs = f.subjects
+                .filter(sub => String(sub.subject_id) === String(slotForm.subject_id) || (selectedSub && sub.code?.toUpperCase() === selectedSub.code?.toUpperCase()))
+                .map(sub => sub.section)
+                .filter(Boolean);
+              if (subSecs.length > 0) {
+                const isCurrent = subSecs.includes(selectedSec);
+                return `${isCurrent ? '⭐ ' : ''}${f.name} (Mapped in: ${subSecs.join(', ')})`;
+              }
+            }
+            const allSecs = [...new Set(f.subjects.map(sub => sub.section).filter(Boolean))];
+            if (allSecs.length > 0) {
+              return `${f.name} (Teaches in: ${allSecs.join(', ')})`;
+            }
+            return f.name;
+          };
+
+          return (
+            <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setModalOpen(false)}>
+              <div className="modal">
+                <div className="modal-header">
+                  <div>
+                    <div className="modal-title">{editingSlot ? '✏️ Edit Slot' : '➕ Add Slot'}</div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
+                      {selectedCell.day} · {selectedCell.timeSlot} · Section {selectedSec}
+                    </div>
+                  </div>
+                  <button className="modal-close" onClick={() => setModalOpen(false)}>✕</button>
+                </div>
+
+                <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                  <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                    <label>Faculty</label>
+                    <select value={slotForm.faculty_id} onChange={e => setSlotForm(p => ({ ...p, faculty_id: e.target.value }))}>
+                      <option value="">— Select Faculty —</option>
+                      {sortedFaculty.map(f => (
+                        <option key={f.id} value={f.id}>
+                          {getFacultyLabel(f)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                    <label>Subject</label>
+                    <select value={slotForm.subject_id} onChange={e => setSlotForm(p => ({ ...p, subject_id: e.target.value }))}>
+                      <option value="">— Select Subject —</option>
+                      {filteredSubjects.map(s => (
+                        <option key={s.id} value={s.id}>
+                          {s.name} ({s.code}) — {s.type.toUpperCase()} — {s.branch} Sem {s.semester}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label>Room / Venue</label>
+                    <input placeholder="e.g. CS-101" value={slotForm.room} onChange={e => setSlotForm(p => ({ ...p, room: e.target.value }))} />
+                  </div>
+                  <div className="form-group">
+                    <label>Batch</label>
+                    <select value={slotForm.batch} onChange={e => setSlotForm(p => ({ ...p, batch: e.target.value }))}>
+                      {BATCHES.map(b => <option key={b.value} value={b.value}>{b.label}</option>)}
+                    </select>
                   </div>
                 </div>
-                <button className="modal-close" onClick={() => setModalOpen(false)}>✕</button>
-              </div>
 
-              <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
-                <div className="form-group" style={{ gridColumn: 'span 2' }}>
-                  <label>Faculty</label>
-                  <select value={slotForm.faculty_id} onChange={e => setSlotForm(p => ({ ...p, faculty_id: e.target.value }))}>
-                    <option value="">— Select Faculty —</option>
-                    {faculty.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-                  </select>
+                <div className="form-actions">
+                  <button className="btn btn-primary" onClick={handleSave} disabled={submitting}>
+                    {submitting ? '⏳ Saving...' : '💾 Save Slot'}
+                  </button>
+                  {editingSlot && (
+                    <button className="btn btn-danger" onClick={handleDelete}>🗑️ Clear Slot</button>
+                  )}
+                  <button className="btn btn-secondary" onClick={() => setModalOpen(false)}>Cancel</button>
                 </div>
-                <div className="form-group" style={{ gridColumn: 'span 2' }}>
-                  <label>Subject</label>
-                  <select value={slotForm.subject_id} onChange={e => setSlotForm(p => ({ ...p, subject_id: e.target.value }))}>
-                    <option value="">— Select Subject —</option>
-                    {allSubjectsFromFaculty.map(s => (
-                      <option key={s.id} value={s.id}>
-                        {s.name} ({s.code}) — {s.type.toUpperCase()} — {s.branch} Sem {s.semester}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label>Room / Venue</label>
-                  <input placeholder="e.g. CS-101" value={slotForm.room} onChange={e => setSlotForm(p => ({ ...p, room: e.target.value }))} />
-                </div>
-                <div className="form-group">
-                  <label>Batch</label>
-                  <select value={slotForm.batch} onChange={e => setSlotForm(p => ({ ...p, batch: e.target.value }))}>
-                    {BATCHES.map(b => <option key={b.value} value={b.value}>{b.label}</option>)}
-                  </select>
-                </div>
-              </div>
-
-              <div className="form-actions">
-                <button className="btn btn-primary" onClick={handleSave} disabled={submitting}>
-                  {submitting ? '⏳ Saving...' : '💾 Save Slot'}
-                </button>
-                {editingSlot && (
-                  <button className="btn btn-danger" onClick={handleDelete}>🗑️ Clear Slot</button>
-                )}
-                <button className="btn btn-secondary" onClick={() => setModalOpen(false)}>Cancel</button>
               </div>
             </div>
-          </div>
-        );
+          );
       })()}
     </div>
   );
